@@ -87,9 +87,5 @@ os.path.dirname(os.path.dirname(os.path.dirname(root)))
 12h
 1d
 
-📌 特徴
-自動データ統合
-サンプル別シート生成
-ppm範囲保持
-re測定データ対応
-Excel形式で即解析可能
+インストール時：
+☑ Add Python to PATH にチェック

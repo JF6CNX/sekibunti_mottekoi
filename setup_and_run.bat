@@ -1,15 +1,29 @@
 @echo off
+setlocal
+cd /d %~dp0
 
-chcp 65001
-set PYTHONUTF8=1
+echo ==========================================
+echo    NMR集計ツール セットアップ ＆ 起動
+echo ==========================================
 
-call C:\Users\%USERNAME%\anaconda3\Scripts\activate.bat
-
-conda env list | findstr nmr_env >nul
-if errorlevel 1 (
-    conda env create -f environment.yml
+:: 1. 仮想環境の作成（最初の一回だけ）
+if not exist ".venv" (
+    echo [1/3] 実行環境を作成中... (初回のみ時間がかかります)
+    python -m venv .venv
 )
 
-conda run -n nmr_env python tenpure_sakusei\main.py
+:: 2. 仮想環境の有効化とライブラリ更新
+echo [2/3] 必要なライブラリをインストール・確認中...
+call .venv\Scripts\activate
+python -m pip install --upgrade pip --quiet
+pip install -r requirements.txt --quiet
 
-pause
+:: 3. アプリ起動
+echo [3/3] アプリを起動しています...
+python app.py
+
+if %errorlevel% neq 0 (
+    echo.
+    echo アプリの起動に失敗しました。
+    pause
+)

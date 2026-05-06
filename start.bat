@@ -2,39 +2,39 @@
 setlocal
 cd /d %~dp0
 
-:: •¶Žš‰»‚¯–hŽ~iUTF-8Ý’èj
+:: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½hï¿½~ï¿½iUTF-8ï¿½Ý’ï¿½j
 chcp 65001 >nul
 
 echo ==========================================
-echo    NMRWŒvƒc[ƒ‹ ƒZƒbƒgƒAƒbƒv • ‹N“®
+echo    NMRï¿½Wï¿½vï¿½cï¿½[ï¿½ï¿½ ï¿½Zï¿½bï¿½gï¿½Aï¿½bï¿½v ï¿½ï¿½ ï¿½Nï¿½ï¿½
 echo ==========================================
 
-:: Python‚ª“ü‚Á‚Ä‚¢‚é‚©Šm”F
+:: Pythonï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½é‚©ï¿½mï¿½F
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Python‚ªƒCƒ“ƒXƒg[ƒ‹‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB
+    echo Pythonï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½B
     pause
     exit /b
 )
 
-:: ‰¼‘zŠÂ‹«‚Ìì¬
+:: ï¿½ï¿½ï¿½zï¿½Â‹ï¿½ï¿½Ìì¬
 if not exist ".venv" (
-    echo [1/3] ŽÀsŠÂ‹«‚ðì¬’†...
+    echo [1/3] ï¿½ï¿½ï¿½sï¿½Â‹ï¿½ï¿½ï¿½ï¿½ì¬ï¿½ï¿½...
     python -m venv .venv
 )
 
-:: ‰¼‘zŠÂ‹«‚ðŽg‚Á‚Äƒ‰ƒCƒuƒ‰ƒŠ‚ðƒCƒ“ƒXƒg[ƒ‹
-echo [2/3] ƒ‰ƒCƒuƒ‰ƒŠ‚ðƒCƒ“ƒXƒg[ƒ‹’†...
+:: ï¿½ï¿½ï¿½zï¿½Â‹ï¿½ï¿½ï¿½ï¿½gï¿½ï¿½ï¿½Äƒï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½
+echo [2/3] ï¿½ï¿½ï¿½Cï¿½uï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Cï¿½ï¿½ï¿½Xï¿½gï¿½[ï¿½ï¿½ï¿½ï¿½...
 call .venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install flet openpyxl
 
-:: ƒAƒvƒŠ‹N“®
-echo [3/3] ƒAƒvƒŠ‚ð‹N“®‚µ‚Ä‚¢‚Ü‚·...
+:: ï¿½Aï¿½vï¿½ï¿½ï¿½Nï¿½ï¿½
+echo [3/3] ï¿½Aï¿½vï¿½ï¿½ï¿½ï¿½ï¿½Nï¿½ï¿½ï¿½ï¿½ï¿½Ä‚ï¿½ï¿½Ü‚ï¿½...
 python app.py
 
 if %errorlevel% neq 0 (
     echo.
-    echo ƒAƒvƒŠ‚Ì‹N“®‚ÉŽ¸”s‚µ‚Ü‚µ‚½B
+    echo ï¿½Aï¿½vï¿½ï¿½ï¿½Ì‹Nï¿½ï¿½ï¿½ÉŽï¿½ï¿½sï¿½ï¿½ï¿½Ü‚ï¿½ï¿½ï¿½ï¿½B
     pause
 )

@@ -2,6 +2,7 @@ import flet as ft
 import os
 import sys
 import datetime
+import json
 
 BASE_DIR = os.path.dirname(__file__)
 sys.path.append(BASE_DIR)
@@ -9,22 +10,37 @@ sys.path.append(BASE_DIR)
 from nmr_excelsekibunti.core.excel_writer import write_excel_from_integrals_multi
 
 INPUT_DIR = r"C:/Users/haruk/chem/nmr"
+TEMPLATE_FILE = os.path.join(BASE_DIR, "templates.json")
 
 
 # =========================
-# ナンバー抽出（強化版）
+# テンプレ管理
 # =========================
-def extract_numbers(dirs):
+def load_templates():
+    if os.path.exists(TEMPLATE_FILE):
+        with open(TEMPLATE_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def save_templates(data):
+    with open(TEMPLATE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# =========================
+# ナンバー + ppm 抽出
+# =========================
+def extract_numbers_and_ppm(dirs):
     numbers = set()
+    ppm_map = {}
 
     for base in dirs:
         for root, _, files in os.walk(base):
             for file in files:
-
                 if "integrals" in file.lower():
 
                     path = os.path.join(root, file)
-                    print("FOUND:", path)
 
                     try:
                         with open(path, encoding="utf-8", errors="ignore") as f:
@@ -33,14 +49,21 @@ def extract_numbers(dirs):
 
                                 if len(parts) >= 4:
                                     try:
-                                        numbers.add(int(parts[0]))
+                                        num = int(parts[0])
+                                        start = float(parts[1])
+                                        end = float(parts[2])
+
+                                        numbers.add(num)
+
+                                        if num not in ppm_map:
+                                            ppm_map[num] = (start, end)
+
                                     except:
                                         pass
-                    except Exception as e:
-                        print("READ ERROR:", e)
+                    except:
+                        pass
 
-    print("NUMBERS:", numbers)
-    return sorted(numbers)
+    return sorted(numbers), ppm_map
 
 
 # =========================
@@ -51,6 +74,8 @@ def main(page: ft.Page):
     page.title = "NMR Tool"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = "#1e1e1e"
+
+    templates = load_templates()
 
     # ===== サンプル取得 =====
     sample_groups = {}
@@ -65,22 +90,26 @@ def main(page: ft.Page):
     samples = sorted(sample_groups.keys())
     selected_samples = set()
 
-    # ===== UI：サンプル =====
-    sample_list = ft.Column(
-        scroll=ft.ScrollMode.AUTO,
-        expand=True,
-    )
+    # ===== UI =====
+    sample_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
-    # ===== ナンバーUI =====
     selected_numbers = []
-    number_grid = ft.GridView(expand=True, max_extent=80)
+    number_grid = ft.GridView(expand=True, max_extent=90)
 
     number_count_text = ft.Text("ナンバー数: 0", color="white")
     selected_display = ft.Text("選択順: ", color="white")
 
+    log = ft.Text(color="white")
+
+    # =========================
+    # 表示更新
+    # =========================
     def update_selected_display():
         selected_display.value = "選択順: " + " → ".join(map(str, selected_numbers))
 
+    # =========================
+    # ナンバークリック
+    # =========================
     def toggle_number(e):
         n = int(e.control.data)
 
@@ -94,20 +123,36 @@ def main(page: ft.Page):
         update_selected_display()
         page.update()
 
-    def build_number_grid(nums):
+    # =========================
+    # ナンバーUI生成
+    # =========================
+    def build_number_grid(nums, ppm_map):
         number_grid.controls.clear()
         selected_numbers.clear()
 
         number_count_text.value = f"ナンバー数: {len(nums)}"
 
         for n in nums:
+
+            ppm_text = ""
+            if n in ppm_map:
+                s, e = ppm_map[n]
+                ppm_text = f"{s:.2f}-{e:.2f}"
+
             number_grid.controls.append(
                 ft.Container(
-                    content=ft.Text(str(n), color="white"),
+                    content=ft.Column(
+                        [
+                            ft.Text(str(n), size=16, color="white"),
+                            ft.Text(ppm_text, size=10, color="#aaaaaa"),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
                     alignment=ft.Alignment(0, 0),
                     bgcolor="#333333",
                     border_radius=8,
-                    padding=10,
+                    padding=6,
                     data=str(n),
                     on_click=toggle_number,
                 )
@@ -115,7 +160,15 @@ def main(page: ft.Page):
 
         update_selected_display()
 
-    # ===== サンプル選択 =====
+    # =========================
+    # テンプレ適用
+    # =========================
+    def apply_template(sample):
+        return templates.get(sample, [])
+
+    # =========================
+    # サンプル選択
+    # =========================
     def toggle_sample(e):
         if e.control.value:
             selected_samples.add(e.control.label)
@@ -127,22 +180,43 @@ def main(page: ft.Page):
             for d in sample_groups[s]:
                 dirs.append(os.path.join(INPUT_DIR, d))
 
-        print("DIRS:", dirs)
+        nums, ppm_map = extract_numbers_and_ppm(dirs)
 
-        nums = extract_numbers(dirs)
-        build_number_grid(nums)
+        build_number_grid(nums, ppm_map)
+
+        # ★テンプレ自動適用（単一選択時）
+        if len(selected_samples) == 1:
+            s = list(selected_samples)[0]
+            template = apply_template(s)
+
+            for n in template:
+                if n in nums:
+                    selected_numbers.append(n)
+
+            update_selected_display()
 
         page.update()
 
-    # サンプル表示
-    for s in samples:
-        sample_list.controls.append(
-            ft.Checkbox(label=s, on_change=toggle_sample)
-        )
+    # =========================
+    # テンプレ保存
+    # =========================
+    def save_template(e):
+        if not selected_samples or not selected_numbers:
+            log.value = "保存条件不足"
+            page.update()
+            return
 
-    # ===== 実行 =====
-    log = ft.Text(color="white")
+        for s in selected_samples:
+            templates[s] = selected_numbers.copy()
 
+        save_templates(templates)
+
+        log.value = "テンプレ保存完了"
+        page.update()
+
+    # =========================
+    # 実行
+    # =========================
     def run(e):
 
         if not selected_samples:
@@ -183,11 +257,17 @@ def main(page: ft.Page):
 
         page.update()
 
-    # ===== UI配置 =====
+    # =========================
+    # UI構築
+    # =========================
+    for s in samples:
+        sample_list.controls.append(
+            ft.Checkbox(label=s, on_change=toggle_sample)
+        )
+
     page.add(
         ft.Row(
             [
-                # 左：サンプル
                 ft.Container(
                     content=ft.Column(
                         [
@@ -202,7 +282,6 @@ def main(page: ft.Page):
                     width=320,
                 ),
 
-                # 右：ナンバー
                 ft.Container(
                     content=ft.Column(
                         [
@@ -210,9 +289,11 @@ def main(page: ft.Page):
                             number_count_text,
                             selected_display,
                             number_grid,
-                            ft.Button(
-                                content=ft.Text("実行"),
-                                on_click=run
+                            ft.Row(
+                                [
+                                    ft.Button(content=ft.Text("実行"), on_click=run),
+                                    ft.Button(content=ft.Text("テンプレ保存"), on_click=save_template),
+                                ]
                             ),
                             log,
                         ],

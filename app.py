@@ -13,223 +13,342 @@ INPUT_DIR = r"C:/Users/haruk/chem/nmr"
 TEMPLATE_FILE = os.path.join(BASE_DIR, "templates.json")
 
 
-# =========================
-# テンプレ管理
-# =========================
+# ==========================================
+# テンプレ読み込み
+# ==========================================
 def load_templates():
+
     if os.path.exists(TEMPLATE_FILE):
-        with open(TEMPLATE_FILE, "r") as f:
-            return json.load(f)
+
+        try:
+            with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+        except:
+            return {}
+
     return {}
 
 
+# ==========================================
+# テンプレ保存
+# ==========================================
 def save_templates(data):
-    with open(TEMPLATE_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+
+    with open(TEMPLATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-# =========================
+# ==========================================
 # ナンバー + ppm 抽出
-# =========================
+# ==========================================
 def extract_numbers_and_ppm(dirs):
+
     numbers = set()
     ppm_map = {}
 
     for base in dirs:
+
         for root, _, files in os.walk(base):
+
             for file in files:
-                if "integrals" in file.lower():
 
-                    path = os.path.join(root, file)
+                if "integrals" not in file.lower():
+                    continue
 
-                    try:
-                        with open(path, encoding="utf-8", errors="ignore") as f:
-                            for line in f:
-                                parts = line.split()
+                path = os.path.join(root, file)
 
-                                if len(parts) >= 4:
-                                    try:
-                                        num = int(parts[0])
-                                        start = float(parts[1])
-                                        end = float(parts[2])
+                try:
+                    with open(path, encoding="utf-8", errors="ignore") as f:
 
-                                        numbers.add(num)
+                        for line in f:
 
-                                        if num not in ppm_map:
-                                            ppm_map[num] = (start, end)
+                            parts = line.split()
 
-                                    except:
-                                        pass
-                    except:
-                        pass
+                            if len(parts) < 4:
+                                continue
+
+                            try:
+                                num = int(parts[0])
+                                start = float(parts[1])
+                                end = float(parts[2])
+
+                                numbers.add(num)
+
+                                if num not in ppm_map:
+                                    ppm_map[num] = (start, end)
+
+                            except:
+                                pass
+
+                except:
+                    pass
 
     return sorted(numbers), ppm_map
 
 
-# =========================
+# ==========================================
 # メイン
-# =========================
+# ==========================================
 def main(page: ft.Page):
 
     page.title = "NMR Tool"
+
     page.theme_mode = ft.ThemeMode.DARK
+
     page.bgcolor = "#1e1e1e"
+
+    page.padding = 10
 
     templates = load_templates()
 
-    # ===== サンプル取得 =====
+    # ==========================================
+    # サンプル探索
+    # ==========================================
     sample_groups = {}
 
     for d in os.listdir(INPUT_DIR):
+
         full = os.path.join(INPUT_DIR, d)
 
         if os.path.isdir(full) and d.startswith("TTH"):
+
             base = d.split("_")[0]
+
             sample_groups.setdefault(base, []).append(d)
 
     samples = sorted(sample_groups.keys())
+
     selected_samples = set()
 
-    # ===== UI =====
-    sample_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
+    selected_numbers_by_sample = {}
 
-    selected_numbers = []
-    number_grid = ft.GridView(expand=True, max_extent=90)
+    sample_list = ft.Column(
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+        spacing=2,
+    )
 
-    number_count_text = ft.Text("ナンバー数: 0", color="white")
-    selected_display = ft.Text("選択順: ", color="white")
+    number_panels = ft.Column(
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
 
     log = ft.Text(color="white")
 
-    # =========================
-    # 表示更新
-    # =========================
-    def update_selected_display():
-        selected_display.value = "選択順: " + " → ".join(map(str, selected_numbers))
-
-    # =========================
+    # ==========================================
     # ナンバークリック
-    # =========================
+    # ==========================================
     def toggle_number(e):
-        n = int(e.control.data)
 
-        if n in selected_numbers:
-            selected_numbers.remove(n)
-            e.control.bgcolor = "#333333"
+        sample = e.control.data["sample"]
+
+        number = e.control.data["number"]
+
+        selected = selected_numbers_by_sample.setdefault(sample, [])
+
+        if number in selected:
+
+            selected.remove(number)
+
         else:
-            selected_numbers.append(n)
-            e.control.bgcolor = "#42a5f5"
 
-        update_selected_display()
-        page.update()
+            selected.append(number)
 
-    # =========================
-    # ナンバーUI生成
-    # =========================
-    def build_number_grid(nums, ppm_map):
-        number_grid.controls.clear()
-        selected_numbers.clear()
+        update_panels()
 
-        number_count_text.value = f"ナンバー数: {len(nums)}"
+    # ==========================================
+    # パネル更新
+    # ==========================================
+    def update_panels():
 
-        for n in nums:
+        number_panels.controls.clear()
 
-            ppm_text = ""
-            if n in ppm_map:
-                s, e = ppm_map[n]
-                ppm_text = f"{s:.2f}-{e:.2f}"
+        for sample in selected_samples:
 
-            number_grid.controls.append(
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(str(n), size=16, color="white"),
-                            ft.Text(ppm_text, size=10, color="#aaaaaa"),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    alignment=ft.Alignment(0, 0),
-                    bgcolor="#333333",
-                    border_radius=8,
-                    padding=6,
-                    data=str(n),
-                    on_click=toggle_number,
-                )
-            )
+            dirs = []
 
-        update_selected_display()
-
-    # =========================
-    # テンプレ適用
-    # =========================
-    def apply_template(sample):
-        return templates.get(sample, [])
-
-    # =========================
-    # サンプル選択
-    # =========================
-    def toggle_sample(e):
-        if e.control.value:
-            selected_samples.add(e.control.label)
-        else:
-            selected_samples.discard(e.control.label)
-
-        dirs = []
-        for s in selected_samples:
-            for d in sample_groups[s]:
+            for d in sample_groups[sample]:
                 dirs.append(os.path.join(INPUT_DIR, d))
 
-        nums, ppm_map = extract_numbers_and_ppm(dirs)
+            nums, ppm_map = extract_numbers_and_ppm(dirs)
 
-        build_number_grid(nums, ppm_map)
+            if sample not in selected_numbers_by_sample:
+                selected_numbers_by_sample[sample] = []
 
-        # ★テンプレ自動適用（単一選択時）
-        if len(selected_samples) == 1:
-            s = list(selected_samples)[0]
-            template = apply_template(s)
+            selected = selected_numbers_by_sample[sample]
 
-            for n in template:
-                if n in nums:
-                    selected_numbers.append(n)
+            # ===== テンプレ自動適用 =====
+            if not selected and sample in templates:
 
-            update_selected_display()
+                for n in templates[sample]:
+
+                    if n in nums:
+                        selected.append(n)
+
+            chips = []
+
+            for n in nums:
+
+                ppm_text = ""
+
+                if n in ppm_map:
+
+                    s, e = ppm_map[n]
+
+                    ppm_text = f"{s:.2f}-{e:.2f}"
+
+                is_selected = n in selected
+
+                chips.append(
+
+                    ft.Container(
+
+                        content=ft.Column(
+
+                            [
+
+                                ft.Text(
+                                    str(n),
+                                    color="white",
+                                    size=18,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+
+                                ft.Text(
+                                    ppm_text,
+                                    color="#bbbbbb",
+                                    size=10,
+                                ),
+
+                            ],
+
+                            spacing=2,
+
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+
+                        ),
+
+                        bgcolor="#1976d2" if is_selected else "#333333",
+
+                        border_radius=10,
+
+                        padding=8,
+
+                        width=90,
+
+                        height=70,
+
+                        alignment=ft.Alignment(0, 0),
+
+                        data={
+                            "sample": sample,
+                            "number": n,
+                        },
+
+                        on_click=toggle_number,
+                    )
+                )
+
+            selected_text = " → ".join(map(str, selected))
+
+            panel = ft.Container(
+
+                content=ft.Column(
+
+                    [
+
+                        ft.Text(
+                            sample,
+                            color="white",
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+
+                        ft.Text(
+                            f"ナンバー数: {len(nums)}",
+                            color="#cccccc",
+                        ),
+
+                        ft.Text(
+                            f"選択順: {selected_text}",
+                            color="#90caf9",
+                        ),
+
+                        ft.GridView(
+                            controls=chips,
+                            runs_count=5,
+                            max_extent=100,
+                            child_aspect_ratio=1.2,
+                            spacing=10,
+                            run_spacing=10,
+                            height=250,
+                        ),
+
+                    ],
+
+                    spacing=10,
+
+                ),
+
+                bgcolor="#2b2b2b",
+
+                border_radius=12,
+
+                padding=15,
+
+            )
+
+            number_panels.controls.append(panel)
 
         page.update()
 
-    # =========================
-    # テンプレ保存
-    # =========================
-    def save_template(e):
-        if not selected_samples or not selected_numbers:
-            log.value = "保存条件不足"
-            page.update()
-            return
+    # ==========================================
+    # サンプル選択
+    # ==========================================
+    def toggle_sample(e):
 
-        for s in selected_samples:
-            templates[s] = selected_numbers.copy()
+        sample = e.control.label
+
+        if e.control.value:
+            selected_samples.add(sample)
+
+        else:
+            selected_samples.discard(sample)
+
+        update_panels()
+
+    # ==========================================
+    # テンプレ保存
+    # ==========================================
+    def save_template(e):
+
+        for sample, nums in selected_numbers_by_sample.items():
+
+            if nums:
+                templates[sample] = nums
 
         save_templates(templates)
 
         log.value = "テンプレ保存完了"
+
         page.update()
 
-    # =========================
+    # ==========================================
     # 実行
-    # =========================
+    # ==========================================
     def run(e):
 
         if not selected_samples:
-            log.value = "サンプル未選択"
-            page.update()
-            return
 
-        if not selected_numbers:
-            log.value = "ナンバー未選択"
+            log.value = "サンプル未選択"
+
             page.update()
+
             return
 
         output_dir = os.path.join(BASE_DIR, "output")
+
         os.makedirs(output_dir, exist_ok=True)
 
         path = os.path.join(
@@ -237,75 +356,136 @@ def main(page: ft.Page):
             f"result_{datetime.datetime.now().strftime('%H%M%S')}.xlsx"
         )
 
-        dirs = []
-        for s in selected_samples:
-            for d in sample_groups[s]:
-                dirs.append(os.path.join(INPUT_DIR, d))
-
         try:
-            write_excel_from_integrals_multi(
-                dirs,
-                path,
-                number_order=selected_numbers,
-            )
+
+            first = True
+
+            for sample in selected_samples:
+
+                dirs = []
+
+                for d in sample_groups[sample]:
+                    dirs.append(os.path.join(INPUT_DIR, d))
+
+                write_excel_from_integrals_multi(
+                    dirs,
+                    path,
+                    number_order=selected_numbers_by_sample.get(sample, []),
+                    append=not first,
+                )
+
+                first = False
 
             os.startfile(path)
-            log.value = "完了"
+
+            log.value = "Excel保存完了"
 
         except Exception as err:
+
             log.value = f"エラー: {err}"
 
         page.update()
 
-    # =========================
-    # UI構築
-    # =========================
+    # ==========================================
+    # サンプル一覧
+    # ==========================================
     for s in samples:
+
         sample_list.controls.append(
-            ft.Checkbox(label=s, on_change=toggle_sample)
+
+            ft.Checkbox(
+                label=s,
+                value=False,
+                on_change=toggle_sample,
+                label_style=ft.TextStyle(color="white"),
+            )
         )
 
+    # ==========================================
+    # UI
+    # ==========================================
     page.add(
+
         ft.Row(
+
             [
+
                 ft.Container(
+
                     content=ft.Column(
+
                         [
-                            ft.Text("サンプル一覧", color="white"),
+
+                            ft.Text(
+                                "サンプル一覧",
+                                color="white",
+                                size=22,
+                                weight=ft.FontWeight.BOLD,
+                            ),
+
                             sample_list,
+
                         ],
+
                         expand=True,
+
                     ),
+
                     bgcolor="#2b2b2b",
+
+                    border_radius=12,
+
                     padding=10,
-                    border_radius=10,
+
                     width=320,
+
                 ),
 
                 ft.Container(
+
                     content=ft.Column(
+
                         [
-                            ft.Text("ナンバー選択", color="white"),
-                            number_count_text,
-                            selected_display,
-                            number_grid,
+
                             ft.Row(
+
                                 [
-                                    ft.Button(content=ft.Text("実行"), on_click=run),
-                                    ft.Button(content=ft.Text("テンプレ保存"), on_click=save_template),
+
+                                    ft.Button(
+                                        content=ft.Text("実行"),
+                                        on_click=run,
+                                    ),
+
+                                    ft.Button(
+                                        content=ft.Text("テンプレ保存"),
+                                        on_click=save_template,
+                                    ),
+
                                 ]
                             ),
+
+                            number_panels,
+
                             log,
+
                         ],
+
                         expand=True,
+
                     ),
-                    bgcolor="#2b2b2b",
-                    padding=10,
-                    border_radius=10,
+
+                    bgcolor="#1e1e1e",
+
                     expand=True,
+
+                    padding=10,
+
                 ),
+
             ],
+
             expand=True,
+
         )
     )
 

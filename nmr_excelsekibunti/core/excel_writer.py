@@ -1,90 +1,215 @@
-import os
 import re
+import os
 from collections import defaultdict
-from openpyxl import Workbook
+
+from openpyxl import Workbook, load_workbook
 
 
-def write_excel_from_integrals_multi(base_dirs, output_path, number_order=None):
+# ==========================================
+# 時間並び替え
+# ==========================================
+def parse_time_value(label):
+
+    m = re.search(r"(\d+)(min|h|d)", label)
+
+    if not m:
+        return 999999
+
+    value = int(m.group(1))
+    unit = m.group(2)
+
+    if unit == "min":
+        return value / 60
+
+    if unit == "h":
+        return value
+
+    if unit == "d":
+        return value * 24
+
+    return 999999
+
+
+# ==========================================
+# 積分データ取得
+# ==========================================
+def collect_integral_data(base_dirs):
 
     data = defaultdict(lambda: defaultdict(dict))
-    number_set = set()
     ppm_range = defaultdict(dict)
 
-    # ===== 複数フォルダ対応 =====
     for base_dir in base_dirs:
 
         for root, dirs, files in os.walk(base_dir):
+
             for file in files:
-                if file == "integrals.txt":
 
-                    try:
-                        folder_name = os.path.basename(
-                            os.path.dirname(os.path.dirname(os.path.dirname(root)))
-                        )
+                if "integrals" not in file.lower():
+                    continue
 
-                        parts = folder_name.split("_")
-                        if len(parts) < 2:
-                            continue
+                path = os.path.join(root, file)
 
-                        time_label = parts[-1]
-                        sample = "_".join(parts[:-1])
+                # --------------------------
+                # サンプル名
+                # --------------------------
+                folder_name = os.path.basename(base_dir)
 
-                        if not re.match(r"\d+[dh]", time_label, re.IGNORECASE):
-                            continue
+                # TTH-E01-001_1h
+                # → sample=TTH-E01-001
+                # → time=1h
 
-                        file_path = os.path.join(root, file)
+                m = re.match(r"(.+?)_(.+)", folder_name)
 
-                        with open(file_path, "r") as f:
-                            for line in f:
-                                parts = line.split()
+                if m:
+                    sample = m.group(1)
+                    time_label = m.group(2)
+                else:
+                    sample = folder_name
+                    time_label = "unknown"
 
-                                if len(parts) == 4:
-                                    try:
-                                        number = int(parts[0])
-                                        start = float(parts[1])
-                                        end = float(parts[2])
-                                        integral = float(parts[3])
+                # --------------------------
+                # integrals.txt 読み込み
+                # --------------------------
+                try:
 
-                                        data[sample][time_label][number] = integral
-                                        number_set.add(number)
+                    with open(path, encoding="utf-8", errors="ignore") as f:
 
-                                        if number not in ppm_range[sample]:
-                                            ppm_range[sample][number] = (start, end)
+                        for line in f:
 
-                                    except:
-                                        continue
+                            parts = line.split()
 
-                    except:
-                        continue
+                            if len(parts) < 4:
+                                continue
 
-    # ===== Excel =====
-    wb = Workbook()
-    wb.remove(wb.active)
+                            try:
 
-    number_list = number_order if number_order else sorted(number_set)
+                                number = int(parts[0])
 
+                                start = float(parts[1])
+                                end = float(parts[2])
+
+                                integral = float(parts[3])
+
+                                data[sample][time_label][number] = integral
+
+                                if number not in ppm_range[sample]:
+                                    ppm_range[sample][number] = (start, end)
+
+                            except:
+                                pass
+
+                except:
+                    pass
+
+    return data, ppm_range
+
+
+# ==========================================
+# Excel出力
+# ==========================================
+def write_excel_from_integrals_multi(
+    base_dirs,
+    output_path,
+    number_order=None,
+    append=False,
+):
+
+    data, ppm_range = collect_integral_data(base_dirs)
+
+    # ======================================
+    # Workbook
+    # ======================================
+    if append and os.path.exists(output_path):
+
+        wb = load_workbook(output_path)
+
+    else:
+
+        wb = Workbook()
+
+        if wb.active:
+            wb.remove(wb.active)
+
+    # ======================================
+    # サンプルごと
+    # ======================================
     for sample, time_dict in data.items():
-        ws = wb.create_sheet(title=sample[:31])
 
+        # ------------------------------
+        # number一覧
+        # ------------------------------
+        all_numbers = set()
+
+        for t in time_dict.values():
+            all_numbers.update(t.keys())
+
+        if number_order:
+
+            number_list = [
+                n for n in number_order
+                if n in all_numbers
+            ]
+
+            remain = sorted(all_numbers - set(number_list))
+
+            number_list.extend(remain)
+
+        else:
+
+            number_list = sorted(all_numbers)
+
+        # ------------------------------
+        # sheet
+        # ------------------------------
+        sheet_name = sample[:31]
+
+        if sheet_name in wb.sheetnames:
+            del wb[sheet_name]
+
+        ws = wb.create_sheet(title=sheet_name)
+
+        # ------------------------------
+        # header
+        # ------------------------------
         ws.append(["time"] + number_list)
 
         ppm_row = ["ppm"]
-        for num in number_list:
-            if num in ppm_range[sample]:
-                s, e = ppm_range[sample][num]
+
+        for n in number_list:
+
+            if n in ppm_range[sample]:
+
+                s, e = ppm_range[sample][n]
+
                 ppm_row.append(f"{s:.2f}–{e:.2f}")
+
             else:
+
                 ppm_row.append("")
+
         ws.append(ppm_row)
 
-        def time_sort(t):
-            m = re.findall(r"\d+", t)
-            return int(m[0]) if m else 0
+        # ------------------------------
+        # data rows
+        # ------------------------------
+        sorted_times = sorted(
+            time_dict.keys(),
+            key=parse_time_value
+        )
 
-        for time in sorted(time_dict.keys(), key=time_sort):
-            row = [time]
-            for num in number_list:
-                row.append(data[sample][time].get(num, ""))
+        for time_label in sorted_times:
+
+            row = [time_label]
+
+            for n in number_list:
+
+                row.append(
+                    time_dict[time_label].get(n, "")
+                )
+
             ws.append(row)
 
+    # ======================================
+    # save
+    # ======================================
     wb.save(output_path)

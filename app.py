@@ -11,7 +11,7 @@ BASE_DIR = os.path.dirname(__file__)
 INPUT_DIR = r"C:/Users/haruk/chem/nmr"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
-TEMPLATE_FILE = os.path.join(DATA_DIR, "nmr_v11_stable.json")
+TEMPLATE_FILE = os.path.join(DATA_DIR, "nmr_v12_final.json")
 
 def load_templates():
     if os.path.exists(TEMPLATE_FILE):
@@ -49,16 +49,16 @@ def extract_numbers_and_ppm(dirs):
 # メイン
 # ==========================================
 def main(page: ft.Page):
-    page.title = "NMR Manager - Force Rebuild Mode"
+    page.title = "NMR Manager - Rebuild Mode v12"
     page.theme_mode = ft.ThemeMode.DARK
     page.window_width = 1500
     page.window_height = 900
     page.padding = 20
 
-    # データの管理
     custom_templates = load_templates()
-    selected_samples = [] # 選択順を維持するためのリスト
+    selected_samples = []
     sample_order_map = {} 
+    checkbox_refs = {} # 左側のチェックボックスを操作するための参照用
 
     # フォルダスキャン
     sample_groups = {} 
@@ -77,15 +77,22 @@ def main(page: ft.Page):
     tmp_input = ft.TextField(label="保存名", width=150, dense=True)
     log = ft.Text("", color="orange", weight="bold")
 
+    def remove_sample_direct(s_name):
+        """中央の×ボタンから解除する処理"""
+        if s_name in selected_samples:
+            selected_samples.remove(s_name)
+        # 左側のチェックボックスの状態も更新する
+        if s_name in checkbox_refs:
+            checkbox_refs[s_name].value = False
+        rebuild_main_view()
+
     def rebuild_main_view():
-        """中央エリアをゼロから作り直す（描画を強制する）"""
         new_controls = []
         for s_name in selected_samples:
             dirs = [os.path.join(INPUT_DIR, d) for d in sample_groups[s_name]]
             nums, ppm_map = extract_numbers_and_ppm(dirs)
             order = sample_order_map.get(s_name, [])
             
-            # カード列
             cards = []
             for n in nums:
                 is_sel = n in order
@@ -104,11 +111,20 @@ def main(page: ft.Page):
                 )
                 cards.append(card)
             
-            # 行を組み立て
             new_controls.append(
                 ft.Container(
                     content=ft.Column([
-                        ft.Text(s_name, size=16, weight="bold", color="#4DABF7"),
+                        # ここに解除ボタンを追加
+                        ft.Row([
+                            ft.Text(s_name, size=16, weight="bold", color="#4DABF7", expand=True),
+                            ft.ElevatedButton(
+                                content=ft.Text("× 解除", size=11), 
+                                bgcolor="#444444", 
+                                color="white",
+                                on_click=lambda e, sn=s_name: remove_sample_direct(sn),
+                                height=30
+                            )
+                        ]),
                         ft.Row(controls=cards, scroll=ft.ScrollMode.ALWAYS, height=120),
                         ft.Divider(height=1, color="white24")
                     ]),
@@ -184,7 +200,9 @@ def main(page: ft.Page):
 
     # --- 初期配置 ---
     for s in samples_keys:
-        check_list_col.controls.append(ft.Checkbox(label=s, data=s, on_change=on_check))
+        cb = ft.Checkbox(label=s, data=s, on_change=on_check)
+        checkbox_refs[s] = cb # 参照を保存
+        check_list_col.controls.append(cb)
 
     update_tmp_ui()
 

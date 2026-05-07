@@ -4,490 +4,222 @@ import sys
 import datetime
 import json
 
+# ==========================================
+# 設定
+# ==========================================
 BASE_DIR = os.path.dirname(__file__)
-sys.path.append(BASE_DIR)
-
-from nmr_excelsekibunti.core.excel_writer import write_excel_from_integrals_multi
-
 INPUT_DIR = r"C:/Users/haruk/chem/nmr"
-TEMPLATE_FILE = os.path.join(BASE_DIR, "templates.json")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+TEMPLATE_FILE = os.path.join(DATA_DIR, "nmr_v11_stable.json")
 
-
-# ==========================================
-# テンプレ読み込み
-# ==========================================
 def load_templates():
-
     if os.path.exists(TEMPLATE_FILE):
-
-        try:
-            with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-
-        except:
-            return {}
-
+        with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
+            try: return json.load(f)
+            except: return {}
     return {}
 
-
-# ==========================================
-# テンプレ保存
-# ==========================================
 def save_templates(data):
-
     with open(TEMPLATE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-
-# ==========================================
-# ナンバー + ppm 抽出
-# ==========================================
 def extract_numbers_and_ppm(dirs):
-
-    numbers = set()
-    ppm_map = {}
-
+    numbers, ppm_map = set(), {}
     for base in dirs:
-
+        if not os.path.exists(base): continue
         for root, _, files in os.walk(base):
-
             for file in files:
-
-                if "integrals" not in file.lower():
-                    continue
-
-                path = os.path.join(root, file)
-
+                if "integrals" not in file.lower(): continue
                 try:
-                    with open(path, encoding="utf-8", errors="ignore") as f:
-
+                    with open(os.path.join(root, file), encoding="utf-8", errors="ignore") as f:
                         for line in f:
-
                             parts = line.split()
-
-                            if len(parts) < 4:
-                                continue
-
+                            if len(parts) < 4: continue
                             try:
                                 num = int(parts[0])
-                                start = float(parts[1])
-                                end = float(parts[2])
-
                                 numbers.add(num)
-
                                 if num not in ppm_map:
-                                    ppm_map[num] = (start, end)
-
-                            except:
-                                pass
-
-                except:
-                    pass
-
+                                    ppm_map[num] = (float(parts[1]), float(parts[2]))
+                            except: pass
+                except: pass
     return sorted(numbers), ppm_map
-
 
 # ==========================================
 # メイン
 # ==========================================
 def main(page: ft.Page):
-
-    page.title = "NMR Tool"
-
+    page.title = "NMR Manager - Force Rebuild Mode"
     page.theme_mode = ft.ThemeMode.DARK
+    page.window_width = 1500
+    page.window_height = 900
+    page.padding = 20
 
-    page.bgcolor = "#1e1e1e"
+    # データの管理
+    custom_templates = load_templates()
+    selected_samples = [] # 選択順を維持するためのリスト
+    sample_order_map = {} 
 
-    page.padding = 10
+    # フォルダスキャン
+    sample_groups = {} 
+    if os.path.exists(INPUT_DIR):
+        for d in os.listdir(INPUT_DIR):
+            full = os.path.join(INPUT_DIR, d)
+            if os.path.isdir(full) and d.startswith("TTH"):
+                base = d.split("_")[0]
+                sample_groups.setdefault(base, []).append(d)
+    samples_keys = sorted(sample_groups.keys())
 
-    templates = load_templates()
+    # --- UI要素 ---
+    main_display_col = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
+    check_list_col = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
+    template_list_col = ft.Column(spacing=5)
+    tmp_input = ft.TextField(label="保存名", width=150, dense=True)
+    log = ft.Text("", color="orange", weight="bold")
 
-    # ==========================================
-    # サンプル探索
-    # ==========================================
-    sample_groups = {}
-
-    for d in os.listdir(INPUT_DIR):
-
-        full = os.path.join(INPUT_DIR, d)
-
-        if os.path.isdir(full) and d.startswith("TTH"):
-
-            base = d.split("_")[0]
-
-            sample_groups.setdefault(base, []).append(d)
-
-    samples = sorted(sample_groups.keys())
-
-    selected_samples = set()
-
-    selected_numbers_by_sample = {}
-
-    sample_list = ft.Column(
-        scroll=ft.ScrollMode.AUTO,
-        expand=True,
-        spacing=2,
-    )
-
-    number_panels = ft.Column(
-        scroll=ft.ScrollMode.AUTO,
-        expand=True,
-    )
-
-    log = ft.Text(color="white")
-
-    # ==========================================
-    # ナンバークリック
-    # ==========================================
-    def toggle_number(e):
-
-        sample = e.control.data["sample"]
-
-        number = e.control.data["number"]
-
-        selected = selected_numbers_by_sample.setdefault(sample, [])
-
-        if number in selected:
-
-            selected.remove(number)
-
-        else:
-
-            selected.append(number)
-
-        update_panels()
-
-    # ==========================================
-    # パネル更新
-    # ==========================================
-    def update_panels():
-
-        number_panels.controls.clear()
-
-        for sample in selected_samples:
-
-            dirs = []
-
-            for d in sample_groups[sample]:
-                dirs.append(os.path.join(INPUT_DIR, d))
-
+    def rebuild_main_view():
+        """中央エリアをゼロから作り直す（描画を強制する）"""
+        new_controls = []
+        for s_name in selected_samples:
+            dirs = [os.path.join(INPUT_DIR, d) for d in sample_groups[s_name]]
             nums, ppm_map = extract_numbers_and_ppm(dirs)
-
-            if sample not in selected_numbers_by_sample:
-                selected_numbers_by_sample[sample] = []
-
-            selected = selected_numbers_by_sample[sample]
-
-            # ===== テンプレ自動適用 =====
-            if not selected and sample in templates:
-
-                for n in templates[sample]:
-
-                    if n in nums:
-                        selected.append(n)
-
-            chips = []
-
+            order = sample_order_map.get(s_name, [])
+            
+            # カード列
+            cards = []
             for n in nums:
-
-                ppm_text = ""
-
-                if n in ppm_map:
-
-                    s, e = ppm_map[n]
-
-                    ppm_text = f"{s:.2f}-{e:.2f}"
-
-                is_selected = n in selected
-
-                chips.append(
-
-                    ft.Container(
-
-                        content=ft.Column(
-
-                            [
-
-                                ft.Text(
-                                    str(n),
-                                    color="white",
-                                    size=18,
-                                    weight=ft.FontWeight.BOLD,
-                                ),
-
-                                ft.Text(
-                                    ppm_text,
-                                    color="#bbbbbb",
-                                    size=10,
-                                ),
-
-                            ],
-
-                            spacing=2,
-
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-
-                        ),
-
-                        bgcolor="#1976d2" if is_selected else "#333333",
-
-                        border_radius=10,
-
-                        padding=8,
-
-                        width=90,
-
-                        height=70,
-
-                        alignment=ft.Alignment(0, 0),
-
-                        data={
-                            "sample": sample,
-                            "number": n,
-                        },
-
-                        on_click=toggle_number,
-                    )
+                is_sel = n in order
+                ppm_val = f"{ppm_map[n][0]:.1f}-{ppm_map[n][1]:.1f}" if n in ppm_map else ""
+                card = ft.Container(
+                    content=ft.Column([
+                        ft.Text(f"#{order.index(n)+1}" if is_sel else "", size=10, weight="bold", color="yellow"),
+                        ft.Text(str(n), size=22, weight="bold"),
+                        ft.Text(ppm_val, size=9),
+                    ], alignment="center", horizontal_alignment="center", spacing=0),
+                    width=80, height=100,
+                    bgcolor="#1976D2" if is_sel else "#333333",
+                    border=ft.border.all(2, "white") if is_sel else None,
+                    border_radius=8,
+                    on_click=lambda e, sn=s_name, num=n: toggle_number(sn, num)
                 )
-
-            selected_text = " → ".join(map(str, selected))
-
-            panel = ft.Container(
-
-                content=ft.Column(
-
-                    [
-
-                        ft.Text(
-                            sample,
-                            color="white",
-                            size=20,
-                            weight=ft.FontWeight.BOLD,
-                        ),
-
-                        ft.Text(
-                            f"ナンバー数: {len(nums)}",
-                            color="#cccccc",
-                        ),
-
-                        ft.Text(
-                            f"選択順: {selected_text}",
-                            color="#90caf9",
-                        ),
-
-                        ft.GridView(
-                            controls=chips,
-                            runs_count=5,
-                            max_extent=100,
-                            child_aspect_ratio=1.2,
-                            spacing=10,
-                            run_spacing=10,
-                            height=250,
-                        ),
-
-                    ],
-
-                    spacing=10,
-
-                ),
-
-                bgcolor="#2b2b2b",
-
-                border_radius=12,
-
-                padding=15,
-
+                cards.append(card)
+            
+            # 行を組み立て
+            new_controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text(s_name, size=16, weight="bold", color="#4DABF7"),
+                        ft.Row(controls=cards, scroll=ft.ScrollMode.ALWAYS, height=120),
+                        ft.Divider(height=1, color="white24")
+                    ]),
+                    padding=10
+                )
             )
-
-            number_panels.controls.append(panel)
-
+        main_display_col.controls = new_controls
         page.update()
 
-    # ==========================================
-    # サンプル選択
-    # ==========================================
-    def toggle_sample(e):
+    def toggle_number(s_name, num):
+        if s_name not in sample_order_map: sample_order_map[s_name] = []
+        lst = sample_order_map[s_name]
+        if num in lst: lst.remove(num)
+        else: lst.append(num)
+        rebuild_main_view()
 
-        sample = e.control.label
-
+    def on_check(e):
+        s_name = e.control.data
         if e.control.value:
-            selected_samples.add(sample)
-
+            if s_name not in selected_samples: selected_samples.append(s_name)
         else:
-            selected_samples.discard(sample)
+            if s_name in selected_samples: selected_samples.remove(s_name)
+        rebuild_main_view()
 
-        update_panels()
+    # --- テンプレート操作 ---
+    def save_t(e):
+        name = tmp_input.value.strip()
+        if name and selected_samples:
+            ref = selected_samples[0]
+            custom_templates[name] = list(sample_order_map.get(ref, []))
+            save_templates(custom_templates)
+            tmp_input.value = ""
+            update_tmp_ui()
 
-    # ==========================================
-    # テンプレ保存
-    # ==========================================
-    def save_template(e):
+    def apply_t(name):
+        order = custom_templates[name]
+        for s_name in selected_samples:
+            sample_order_map[s_name] = list(order)
+        rebuild_main_view()
 
-        for sample, nums in selected_numbers_by_sample.items():
+    def del_t(name):
+        if name in custom_templates:
+            del custom_templates[name]
+            save_templates(custom_templates)
+            update_tmp_ui()
 
-            if nums:
-                templates[sample] = nums
-
-        save_templates(templates)
-
-        log.value = "テンプレ保存完了"
-
+    def update_tmp_ui():
+        template_list_col.controls = [
+            ft.Row([
+                ft.ElevatedButton(n, on_click=lambda e, name=n: apply_t(name), expand=True),
+                ft.ElevatedButton("×", bgcolor="red800", color="white", on_click=lambda e, name=n: del_t(name), width=45)
+            ]) for n in sorted(custom_templates.keys())
+        ]
         page.update()
 
-    # ==========================================
-    # 実行
-    # ==========================================
-    def run(e):
-
-        if not selected_samples:
-
-            log.value = "サンプル未選択"
-
-            page.update()
-
-            return
-
-        output_dir = os.path.join(BASE_DIR, "output")
-
-        os.makedirs(output_dir, exist_ok=True)
-
-        path = os.path.join(
-            output_dir,
-            f"result_{datetime.datetime.now().strftime('%H%M%S')}.xlsx"
-        )
-
+    # --- Excel出力 ---
+    def run_excel(e):
+        if not selected_samples: return
         try:
-
-            first = True
-
-            for sample in selected_samples:
-
-                dirs = []
-
-                for d in sample_groups[sample]:
-                    dirs.append(os.path.join(INPUT_DIR, d))
-
-                write_excel_from_integrals_multi(
-                    dirs,
-                    path,
-                    number_order=selected_numbers_by_sample.get(sample, []),
-                    append=not first,
-                )
-
-                first = False
-
-            os.startfile(path)
-
-            log.value = "Excel保存完了"
-
+            from nmr_excelsekibunti.core.excel_writer import write_excel_from_integrals_multi
+            path = os.path.join(BASE_DIR, f"Result_{datetime.datetime.now().strftime('%H%M%S')}.xlsx")
+            count = 0
+            for s in selected_samples:
+                dirs = [os.path.join(INPUT_DIR, d) for d in sample_groups[s]]
+                order = sample_order_map.get(s, [])
+                if not order: continue
+                write_excel_from_integrals_multi(dirs, path, number_order=order, append=(count > 0))
+                count += 1
+            if count > 0: os.startfile(path); log.value = "Excel成功"
         except Exception as err:
-
-            log.value = f"エラー: {err}"
-
+            log.value = f"Error: {err}"
         page.update()
 
-    # ==========================================
-    # サンプル一覧
-    # ==========================================
-    for s in samples:
+    # --- 初期配置 ---
+    for s in samples_keys:
+        check_list_col.controls.append(ft.Checkbox(label=s, data=s, on_change=on_check))
 
-        sample_list.controls.append(
+    update_tmp_ui()
 
-            ft.Checkbox(
-                label=s,
-                value=False,
-                on_change=toggle_sample,
-                label_style=ft.TextStyle(color="white"),
-            )
-        )
-
-    # ==========================================
-    # UI
-    # ==========================================
     page.add(
-
-        ft.Row(
-
-            [
-
-                ft.Container(
-
-                    content=ft.Column(
-
-                        [
-
-                            ft.Text(
-                                "サンプル一覧",
-                                color="white",
-                                size=22,
-                                weight=ft.FontWeight.BOLD,
-                            ),
-
-                            sample_list,
-
-                        ],
-
-                        expand=True,
-
-                    ),
-
-                    bgcolor="#2b2b2b",
-
-                    border_radius=12,
-
-                    padding=10,
-
-                    width=320,
-
-                ),
-
-                ft.Container(
-
-                    content=ft.Column(
-
-                        [
-
-                            ft.Row(
-
-                                [
-
-                                    ft.Button(
-                                        content=ft.Text("実行"),
-                                        on_click=run,
-                                    ),
-
-                                    ft.Button(
-                                        content=ft.Text("テンプレ保存"),
-                                        on_click=save_template,
-                                    ),
-
-                                ]
-                            ),
-
-                            number_panels,
-
-                            log,
-
-                        ],
-
-                        expand=True,
-
-                    ),
-
-                    bgcolor="#1e1e1e",
-
-                    expand=True,
-
-                    padding=10,
-
-                ),
-
-            ],
-
-            expand=True,
-
-        )
+        ft.Row([
+            # 左
+            ft.Container(
+                content=ft.Column([ft.Text("対象選択", weight="bold"), ft.Divider(), check_list_col]),
+                width=250, bgcolor="#262626", padding=15, border_radius=10
+            ),
+            # 中
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text("ナンバー設定", size=20, weight="bold"),
+                        ft.ElevatedButton("Excel出力", bgcolor="green", color="white", on_click=run_excel)
+                    ], alignment="spaceBetween"),
+                    ft.Divider(),
+                    main_display_col,
+                    log
+                ]),
+                expand=True, bgcolor="#1E1E1E", padding=15, border_radius=10
+            ),
+            # 右
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("テンプレート"),
+                    ft.Row([tmp_input, ft.ElevatedButton("保存", on_click=save_t)]),
+                    ft.Divider(),
+                    template_list_col
+                ]),
+                width=300, bgcolor="#262626", padding=15, border_radius=10
+            )
+        ], expand=True)
     )
 
-
-ft.run(main)
+if __name__ == "__main__":
+    ft.app(target=main)

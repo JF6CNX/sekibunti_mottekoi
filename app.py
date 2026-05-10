@@ -3,11 +3,17 @@ import os
 import datetime
 import json
 import re
+import sys
 
 # ==========================================
 # パス設定
 # ==========================================
-BASE_DIR = os.path.dirname(__file__)
+import sys
+
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -190,31 +196,50 @@ def scan_samples(input_dir):
 
         full = os.path.join(input_dir, d)
 
-        if os.path.isdir(full) and d.startswith("TTH"):
+        # フォルダのみ対象
+        if not os.path.isdir(full):
+            continue
 
-            name_clean = os.path.splitext(d)[0]
+        name_clean = os.path.splitext(d)[0]
 
-            pattern = r"^(TTH[-_＿][A-Z0-9]+[-_＿]\d{3})"
+        # ==================================
+        # 対応例
+        # TTH-AAA-001
+        # MKK-BBB-002
+        # FJK_CCC_003
+        # abc-test-001
+        # ==================================
+        pattern = (
+            r"^([A-Za-z0-9]+"
+            r"[-_＿]"
+            r"[A-Za-z0-9]+"
+            r"[-_＿]"
+            r"\d{3})"
+        )
 
-            match = re.match(pattern, name_clean)
+        match = re.match(
+            pattern,
+            name_clean,
+        )
 
-            if match:
-                base = match.group(1)
+        if match:
 
-            else:
+            base = match.group(1)
 
-                split_match = re.search(
-                    r"^(.*)[-_＿][^-_＿]+$",
-                    name_clean,
-                )
+        else:
 
-                base = (
-                    split_match.group(1)
-                    if split_match
-                    else name_clean
-                )
+            split_match = re.search(
+                r"^(.*)[-_＿][^-_＿]+$",
+                name_clean,
+            )
 
-            sample_groups.setdefault(base, []).append(d)
+            base = (
+                split_match.group(1)
+                if split_match
+                else name_clean
+            )
+
+        sample_groups.setdefault(base, []).append(d)
 
     return sample_groups
 
@@ -476,7 +501,6 @@ def main(page: ft.Page):
         ],
     )
 
-    # ===== これが超重要 =====
     page.overlay.append(settings_dialog)
 
     # ======================================
@@ -709,6 +733,14 @@ def main(page: ft.Page):
         left_panel.bgcolor = C["panel2"]
         center_panel.bgcolor = C["panel"]
         right_panel.bgcolor = C["panel2"]
+
+        left_title.color = C["text"]
+        center_title.color = C["text"]
+        right_title.color = C["text"]
+
+        left_panel.update()
+        center_panel.update()
+        right_panel.update()
 
         page.update()
 
@@ -966,6 +998,13 @@ def main(page: ft.Page):
     # ======================================
     # 左
     # ======================================
+    left_title = ft.Text(
+        "対象選択",
+        size=20,
+        weight="bold",
+        color=C["text"],
+    )
+
     left_panel = ft.Container(
 
         width=300,
@@ -980,12 +1019,7 @@ def main(page: ft.Page):
 
             [
 
-                ft.Text(
-                    "対象選択",
-                    size=20,
-                    weight="bold",
-                    color=C["text"],
-                ),
+                left_title,
 
                 ft.Divider(),
 
@@ -1002,6 +1036,13 @@ def main(page: ft.Page):
     # ======================================
     # 中央
     # ======================================
+    center_title = ft.Text(
+        "NMR Manager",
+        size=24,
+        weight="bold",
+        color=C["text"],
+    )
+
     center_panel = ft.Container(
 
         expand=True,
@@ -1020,12 +1061,7 @@ def main(page: ft.Page):
 
                     [
 
-                        ft.Text(
-                            "NMR Manager",
-                            size=24,
-                            weight="bold",
-                            color=C["text"],
-                        ),
+                        center_title,
 
                         ft.Row(
 
@@ -1059,6 +1095,13 @@ def main(page: ft.Page):
     # ======================================
     # 右
     # ======================================
+    right_title = ft.Text(
+        "テンプレート",
+        size=20,
+        weight="bold",
+        color=C["text"],
+    )
+
     right_panel = ft.Container(
 
         width=300,
@@ -1073,12 +1116,7 @@ def main(page: ft.Page):
 
             [
 
-                ft.Text(
-                    "テンプレート",
-                    size=20,
-                    weight="bold",
-                    color=C["text"],
-                ),
+                right_title,
 
                 ft.Row(
                     [

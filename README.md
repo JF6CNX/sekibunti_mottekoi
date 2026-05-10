@@ -1,91 +1,102 @@
-NMR積分データ自動集計ツール
-このスクリプトは、NMR解析結果（integrals.txt）を自動収集し、サンプルごと・時間ごとに整理したExcelファイルを生成します。
+NMR Manager
 
-フォルダ内を再帰的に探索
-サンプルごとにシートを分割
-time × peak number のマトリクス化
-ppm範囲も同時に記録
+NMR積分データ（integrals）を読み込み，GUI上でピーク番号を選択・並び替えし，Excelへ自動出力するためのFletベースのアプリケーションです．
 
-🧰 必要環境
-Python 3.8以上推奨
-以下のライブラリ
-pip install openpyxl
+Features
+NMRサンプルの自動探索
+積分番号（integral number）のGUI選択
+選択順の保存
+テンプレート保存 / 読み込み
+複数サンプルへのテンプレ一括適用
+Excel自動出力
+Dark / Light テーマ切替
+.exe 化対応
+Supported Sample Names
 
-標準ライブラリ：
-os
-re
-collections
+以下のようなサンプル名に対応しています．
 
-📁 入力データ構造
-対象フォルダ：
-C:/Users/haruk/chem/nmr（ここは個人で変更する必要があります）
+TTH-ABC-001
+MKK-XYZ-002
+FJK_TEST_003
 
-各データは以下の構造を想定：
-sample_xxx_1h/
-    └── root/
-        └── sub/
-            └── integrals.txt
-📄 integrals.txt のフォーマット
+先頭の研究者コードが異なっていても利用可能です．
 
-各行は以下の形式：
+Required Structure
+project/
+│
+├─ app.py
+├─ nmr_excelsekibunti/
+│
+├─ data/
+│
+├─ output/
+│
+└─ NMR sample folders
+Installation
+1. Create virtual environment
+python -m venv venv
+2. Activate virtual environment
+Windows
+.\venv\Scripts\activate
+3. Install packages
+pip install -r requirements.txt
+Run Application
+python app.py
+Build EXE
+flet pack app.py --name "NMR Manager"
 
-番号  ppm_start  ppm_end  積分値
+Generated executable:
 
-例：
-1 7.10 7.25 123.45
-2 3.45 3.60 67.89
-🧠 サンプル名のルール
+dist/app.exe
+Settings
 
-フォルダ名から自動抽出：
-sample_1h
-sample_re_1h
-_1h, _2h, 1d など → 時間情報
-_re → 再測定データとしてそのまま保持
+Application settings are stored in:
 
-⚙️ 処理内容
-1. データ収集
-integrals.txt を全探索
-サンプル名ごとに分類
-peak番号ごとに整理
-2. Excel出力形式
+data/settings.json
 
-各サンプルごとにシート作成：
-1行目
-time | 1 | 2 | 3 | ...
-2行目
-ppm  | 7.10–7.25 | 3.45–3.60 | ...
-3行目以降
-1h   | 123.4 | 56.7 | ...
-2h   | ...
-💾 出力先
-C:/Users/haruk/OneDrive - （個人でパスを変更する必要があります）
+Saved items:
 
-▶ 実行方法
-python script_name.py
+Input directory
+Output directory
+Theme mode
+Auto-open Excel option
+Templates
 
-実行後：
+Peak selection templates are stored in:
 
-Excelファイルを閉じるよう指示される
-Enterで処理開始
-上書き保存される
+data/nmr_v12_final.json
+Excel Export
 
-⚠️ 注意点
-■ Excelが開いていると保存できない
-→ PermissionError が出るため、閉じてからEnter
+Selected integral orders are exported using:
 
-■ フォルダ構造依存
-以下の構造に依存：
-os.path.dirname(os.path.dirname(os.path.dirname(root)))
+write_excel_from_integrals_multi()
 
-構造が変わるとサンプル名抽出が壊れる可能性あり
+from:
 
-■ time判定ルール
-\d+[dh（個人が設定している時間の単位をここに記載してください）]
-例：
+nmr_excelsekibunti.core.excel_writer
+Main Libraries
+Flet
+OpenPyXL
+JSON
+Regular Expressions (re)
+Recommended .gitignore
+__pycache__/
+*.pyc
 
-1h
-12h
-1d
+venv/
+build/
+dist/
 
-インストール時：
-☑ Add Python to PATH にチェック
+output/
+
+data/settings.json
+
+.vscode/
+Notes
+Avoid building inside OneDrive directories if possible.
+EXE generation is more stable inside local directories such as:
+C:\dev\
+If EXE does not launch, install Microsoft Visual C++ Redistributable.
+License
+
+Private research / laboratory use.

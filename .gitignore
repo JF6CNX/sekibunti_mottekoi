@@ -10,14 +10,20 @@ clean_env/
 build/
 dist/
 *.spec
+*.exe
 
 # User data
 data/settings.json
 output/
 data/*.json
+data/output/
+*.xlsx
 
 # VSCode
 .vscode/
+
+# Local backup
+backup/
 
 # OS
 .DS_Store

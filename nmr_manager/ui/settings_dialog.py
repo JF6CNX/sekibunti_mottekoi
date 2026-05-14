@@ -1,5 +1,7 @@
 import flet as ft
 
+from nmr_manager.theme import get_theme_names
+
 
 def build_settings_dialog(
     input_dir_field,
@@ -50,8 +52,8 @@ def build_settings_fields(settings):
         label="Theme",
         value=settings["theme_mode"],
         options=[
-            ft.dropdown.Option("dark"),
-            ft.dropdown.Option("light"),
+            ft.dropdown.Option(theme_name)
+            for theme_name in get_theme_names()
         ],
     )
     auto_open_switch = ft.Switch(

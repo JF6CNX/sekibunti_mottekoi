@@ -2,6 +2,13 @@ import os
 
 import flet as ft
 
+from nmr_manager.excel_files import (
+    format_file_size,
+    list_excel_files,
+    move_all_excel_files_to_trash,
+    move_excel_file_to_trash,
+    restore_excel_files,
+)
 from nmr_manager.excel_service import export_selected_samples
 from nmr_manager.integrals import extract_numbers_and_ppm
 from nmr_manager.messages import (
@@ -16,8 +23,12 @@ from nmr_manager.state import AppState
 from nmr_manager.templates import load_templates, save_templates
 from nmr_manager.theme import get_colors, get_theme_mode
 from nmr_manager.ui import (
+    apply_layout_background,
+    apply_panel_background,
     build_center_panel,
     build_center_title,
+    build_excel_dialog,
+    build_excel_file_row,
     build_main_layout,
     build_sample_panel,
     build_sample_title,
@@ -43,6 +54,7 @@ def main(page: ft.Page):
 
     colors = get_colors(settings["theme_mode"])
     page.bgcolor = colors["bg"]
+    main_layout = None
 
     main_display_col = ft.Column(
         expand=True,
@@ -53,7 +65,24 @@ def main(page: ft.Page):
         scroll=ft.ScrollMode.ALWAYS,
     )
     template_list_col = ft.Column()
+    excel_list_col = ft.Column(
+        expand=True,
+        scroll=ft.ScrollMode.ALWAYS,
+    )
+    stats_text = ft.Text(
+        "Selected: 0 / Peaks: 0 / Export ready: 0",
+        size=12,
+    )
     tmp_input = build_template_input()
+    rename_template_name = None
+    last_undo = {
+        "label": None,
+        "action": None,
+    }
+    rename_template_input = ft.TextField(
+        label="New name",
+        width=280,
+    )
 
     (
         input_dir_field,
@@ -70,12 +99,59 @@ def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
+    def set_undo(label, action):
+        last_undo["label"] = label
+        last_undo["action"] = action
+
+    def run_undo(e):
+        action = last_undo["action"]
+        label = last_undo["label"]
+
+        if action is None:
+            show_message("nothing to undo", "blue")
+            return
+
+        try:
+            action()
+            last_undo["label"] = None
+            last_undo["action"] = None
+            show_message(f"undone: {label}", "blue")
+        except Exception as err:
+            show_message(error_message(err), "red")
+
+    def sort_sample_names(sample_names):
+        favorites = set(settings.get("favorite_samples", []))
+        return sorted(
+            sample_names,
+            key=lambda name: (name not in favorites, name.lower()),
+        )
+
+    def update_stats():
+        selected_count = len(state.selected_samples)
+        peak_count = sum(
+            len(state.get_order(sample_name))
+            for sample_name in state.selected_samples
+        )
+        export_ready_count = sum(
+            1
+            for sample_name in state.selected_samples
+            if state.get_order(sample_name)
+        )
+        stats_text.value = (
+            f"Selected: {selected_count} / "
+            f"Peaks: {peak_count} / "
+            f"Export ready: {export_ready_count}"
+        )
+
     def apply_theme():
         nonlocal colors
 
         page.theme_mode = get_theme_mode(settings["theme_mode"])
         colors = get_colors(settings["theme_mode"])
         page.bgcolor = colors["bg"]
+
+        if main_layout is not None:
+            apply_layout_background(main_layout, colors)
 
     def close_settings(e=None):
         settings_dialog.open = False
@@ -104,6 +180,80 @@ def main(page: ft.Page):
         settings_dialog.open = True
         page.update()
 
+    def close_excel_dialog(e=None):
+        excel_dialog.open = False
+        page.update()
+
+    def open_excel_dialog(e):
+        refresh_excel_files()
+        excel_dialog.open = True
+        page.update()
+
+    def open_excel_file(path):
+        try:
+            os.startfile(path)
+        except Exception as err:
+            show_message(error_message(err), "red")
+
+    def delete_one_excel_file(path):
+        try:
+            moved_file = move_excel_file_to_trash(path, settings["output_dir"])
+
+            def undo_delete():
+                restore_excel_files([moved_file])
+                refresh_excel_files()
+
+            set_undo("delete excel file", undo_delete)
+            refresh_excel_files()
+            show_message("excel file deleted. Undo is available.", "red")
+        except Exception as err:
+            show_message(error_message(err), "red")
+
+    def open_delete_all_excel_confirm(e):
+        delete_all_excel_dialog.open = True
+        page.update()
+
+    def close_delete_all_excel_confirm(e=None):
+        delete_all_excel_dialog.open = False
+        page.update()
+
+    def delete_all_excel_action(e):
+        try:
+            moved_files = move_all_excel_files_to_trash(settings["output_dir"])
+            deleted_count = len(moved_files)
+
+            def undo_delete_all():
+                restore_excel_files(moved_files)
+                refresh_excel_files()
+
+            set_undo("delete all excel files", undo_delete_all)
+            close_delete_all_excel_confirm()
+            refresh_excel_files()
+            show_message(f"deleted {deleted_count} excel files. Undo is available.", "red")
+        except Exception as err:
+            show_message(error_message(err), "red")
+
+    def refresh_excel_files(e=None):
+        excel_files = list_excel_files(settings["output_dir"])
+
+        if not excel_files:
+            excel_list_col.controls = [
+                ft.Text("No Excel files found.")
+            ]
+            page.update()
+            return
+
+        excel_list_col.controls = [
+            build_excel_file_row(
+                item,
+                format_file_size(item["size"]),
+                open_excel_file,
+                delete_one_excel_file,
+            )
+            for item in excel_files
+        ]
+        page.update()
+
     def on_check(e):
         sample_name = e.control.data
 
@@ -114,19 +264,49 @@ def main(page: ft.Page):
 
         rebuild_main_view()
 
+    def toggle_favorite_sample(sample_name):
+        favorites = settings.setdefault("favorite_samples", [])
+
+        if sample_name in favorites:
+            favorites.remove(sample_name)
+        else:
+            favorites.append(sample_name)
+
+        save_settings(settings)
+        reload_sample_list()
+
     def reload_sample_list():
         state.set_sample_groups(scan_samples(settings["input_dir"]))
+        state.samples_keys = sort_sample_names(state.samples_keys)
         check_list_col.controls.clear()
         state.checkbox_refs.clear()
 
         for sample_name in state.samples_keys:
+            is_favorite = sample_name in settings.get("favorite_samples", [])
             checkbox = ft.Checkbox(
                 label=sample_name,
                 data=sample_name,
                 on_change=on_check,
+                value=sample_name in state.selected_samples,
             )
             state.checkbox_refs[sample_name] = checkbox
-            check_list_col.controls.append(checkbox)
+            check_list_col.controls.append(
+                ft.Row(
+                    [
+                        ft.ElevatedButton(
+                            "*" if is_favorite else "+",
+                            width=42,
+                            bgcolor="#FFD400" if is_favorite else None,
+                            color="black" if is_favorite else None,
+                            on_click=lambda e, sn=sample_name: (
+                                toggle_favorite_sample(sn)
+                            ),
+                        ),
+                        checkbox,
+                    ],
+                    spacing=4,
+                )
+            )
 
         page.update()
 
@@ -139,8 +319,28 @@ def main(page: ft.Page):
         rebuild_main_view()
 
     def clear_all_samples(e):
+        selected_snapshot = list(state.selected_samples)
+        order_snapshot = {
+            sample_name: list(order)
+            for sample_name, order in state.sample_order_map.items()
+        }
+
+        def undo_clear():
+            state.selected_samples = list(selected_snapshot)
+            state.sample_order_map = {
+                sample_name: list(order)
+                for sample_name, order in order_snapshot.items()
+            }
+
+            for sample_name, checkbox in state.checkbox_refs.items():
+                checkbox.value = sample_name in state.selected_samples
+
+            rebuild_main_view()
+
+        set_undo("clear selected samples", undo_clear)
         state.clear_samples()
         rebuild_main_view()
+        show_message("selection cleared. Undo is available.", "red")
 
     def toggle_number(sample_name, number):
         state.toggle_number(sample_name, number)
@@ -148,6 +348,7 @@ def main(page: ft.Page):
 
     def rebuild_main_view():
         apply_theme()
+        update_stats()
 
         new_controls = []
 
@@ -240,13 +441,14 @@ def main(page: ft.Page):
 
         main_display_col.controls = new_controls
 
-        left_panel.bgcolor = colors["panel2"]
-        center_panel.bgcolor = colors["panel"]
-        right_panel.bgcolor = colors["panel2"]
+        apply_panel_background(left_panel, colors, "panel2")
+        apply_panel_background(center_panel, colors, "panel")
+        apply_panel_background(right_panel, colors, "panel2")
 
         left_title.color = colors["text"]
         center_title.color = colors["text"]
         right_title.color = colors["text"]
+        stats_text.color = colors["text"]
 
         page.update()
 
@@ -281,10 +483,54 @@ def main(page: ft.Page):
         if name not in custom_templates:
             return
 
+        deleted_order = list(custom_templates[name])
+
+        def undo_delete_template():
+            custom_templates[name] = list(deleted_order)
+            save_templates(custom_templates)
+            update_template_ui()
+
+        set_undo("delete template", undo_delete_template)
         del custom_templates[name]
         save_templates(custom_templates)
         update_template_ui()
-        show_message(f"template deleted: {name}", "red")
+        show_message(f"template deleted: {name}. Undo is available.", "red")
+
+    def open_rename_template_dialog(name):
+        nonlocal rename_template_name
+
+        rename_template_name = name
+        rename_template_input.value = name
+        rename_template_dialog.open = True
+        page.update()
+
+    def close_rename_template_dialog(e=None):
+        rename_template_dialog.open = False
+        page.update()
+
+    def rename_template_action(e):
+        nonlocal rename_template_name
+
+        old_name = rename_template_name
+        new_name = rename_template_input.value.strip()
+
+        if not old_name or not new_name:
+            return
+
+        if old_name == new_name:
+            close_rename_template_dialog()
+            return
+
+        if new_name in custom_templates:
+            show_message("template name already exists", "red")
+            return
+
+        custom_templates[new_name] = custom_templates.pop(old_name)
+        save_templates(custom_templates)
+        rename_template_name = None
+        close_rename_template_dialog()
+        update_template_ui()
+        show_message(f"template renamed: {new_name}", "blue")
 
     def update_template_ui():
         template_list_col.controls = [
@@ -295,6 +541,13 @@ def main(page: ft.Page):
                         expand=True,
                         on_click=lambda e, template_name=name: apply_template(
                             template_name
+                        ),
+                    ),
+                    ft.ElevatedButton(
+                        "Rename",
+                        width=85,
+                        on_click=lambda e, template_name=name: (
+                            open_rename_template_dialog(template_name)
                         ),
                     ),
                     ft.ElevatedButton(
@@ -346,6 +599,50 @@ def main(page: ft.Page):
     )
     page.overlay.append(settings_dialog)
 
+    excel_dialog = build_excel_dialog(
+        excel_list_col,
+        close_excel_dialog,
+        refresh_excel_files,
+        open_delete_all_excel_confirm,
+    )
+    page.overlay.append(excel_dialog)
+
+    delete_all_excel_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Delete all Excel files?"),
+        content=ft.Text("This deletes all .xlsx files in the output folder."),
+        actions=[
+            ft.TextButton(
+                "Cancel",
+                on_click=close_delete_all_excel_confirm,
+            ),
+            ft.ElevatedButton(
+                "Delete all",
+                bgcolor="red",
+                color="white",
+                on_click=delete_all_excel_action,
+            ),
+        ],
+    )
+    page.overlay.append(delete_all_excel_dialog)
+
+    rename_template_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Rename template"),
+        content=rename_template_input,
+        actions=[
+            ft.TextButton(
+                "Cancel",
+                on_click=close_rename_template_dialog,
+            ),
+            ft.ElevatedButton(
+                "Rename",
+                on_click=rename_template_action,
+            ),
+        ],
+    )
+    page.overlay.append(rename_template_dialog)
+
     left_title = build_sample_title(colors)
     center_title = build_center_title(colors)
     right_title = build_template_title(colors)
@@ -358,9 +655,12 @@ def main(page: ft.Page):
     )
     center_panel = build_center_panel(
         center_title,
+        stats_text,
         main_display_col,
         open_settings,
         run_excel,
+        open_excel_dialog,
+        run_undo,
         colors,
     )
     right_panel = build_template_panel(
@@ -374,13 +674,14 @@ def main(page: ft.Page):
     reload_sample_list()
     update_template_ui()
 
-    page.add(
-        build_main_layout(
-            left_panel,
-            center_panel,
-            right_panel,
-        )
+    main_layout = build_main_layout(
+        left_panel,
+        center_panel,
+        right_panel,
+        colors,
     )
+
+    page.add(main_layout)
     rebuild_main_view()
 
 

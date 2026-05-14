@@ -8,6 +8,7 @@ DEFAULT_SETTINGS = {
     "output_dir" : OUTPUT_DIR,
     "theme_mode" : "dark",
     "auto_open_excel" : True,
+    "favorite_samples": [],
 }
 
 def load_settings():

@@ -4,9 +4,9 @@ import os
 from nmr_manager.paths import OUTPUT_DIR, SETTINGS_FILE, ensure_data_dir
 
 DEFAULT_SETTINGS = {
-    "input_dir" : r"C:/Users/haruk/chem/nmr",
+    "input_dir" : "",
     "output_dir" : OUTPUT_DIR,
-    "theme_mode" : "dark",
+    "theme_mode" : "momiji_light",
     "auto_open_excel" : True,
     "favorite_samples": [],
 }
